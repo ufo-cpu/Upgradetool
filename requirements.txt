@@ -1,0 +1,7 @@
+playwright
+scapy
+psutil
+requests
+pandas
+openpyxl
+paramiko

@@ -1,0 +1,5 @@
+python -m venv venv
+venv\Scripts\activate
+pip install playwright pyinstaller scapy psutil requests pandas
+set PLAYWRIGHT_BROWSERS_PATH=0;playwright install chromium
+pyinstaller BatchUpdater.spec

@@ -1,0 +1,29 @@
+# UTF-8
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(1, 0, 7, 0),
+    prodvers=(1, 0, 7, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+      StringTable(
+        u'040904B0',
+        [StringStruct(u'CompanyName', u'InHand Networks'),
+        StringStruct(u'FileDescription', u'Router Batch Management Tool'),
+        StringStruct(u'FileVersion', u'1.0.6.0'),
+        StringStruct(u'InternalName', u'BatchUpdater'),
+        StringStruct(u'LegalCopyright', u''),
+        StringStruct(u'OriginalFilename', u'BatchUpdater.exe'),
+        StringStruct(u'ProductName', u'Router Batch Updater'),
+        StringStruct(u'ProductVersion', u'1.0.6.0')])
+      ]), 
+    VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
+  ]
+)
