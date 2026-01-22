@@ -9,6 +9,7 @@
 import glob
 # main_app.py
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import scrolledtext, messagebox, filedialog, ttk
 import threading
 import queue
@@ -37,6 +38,44 @@ from config.device_defaults import get_model_defaults
 # --- Set up basic logging for console output ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(threadName)s - %(levelname)s - %(message)s')
 
+class ToolTip:
+    """简单的悬停提示框。"""
+    def __init__(self, widget, text, delay=400):
+        self.widget = widget
+        self.text = text
+        self.delay = delay
+        self._after_id = None
+        self._tooltip = None
+        self.widget.bind("<Enter>", self._schedule)
+        self.widget.bind("<Leave>", self._hide)
+        self.widget.bind("<ButtonPress>", self._hide)
+
+    def _schedule(self, event=None):
+        self._cancel()
+        self._after_id = self.widget.after(self.delay, self._show)
+
+    def _cancel(self):
+        if self._after_id:
+            self.widget.after_cancel(self._after_id)
+            self._after_id = None
+
+    def _show(self):
+        if self._tooltip or not self.text:
+            return
+        x = self.widget.winfo_rootx() + 20
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 6
+        self._tooltip = tk.Toplevel(self.widget)
+        self._tooltip.wm_overrideredirect(True)
+        self._tooltip.wm_geometry(f"+{x}+{y}")
+        label = ttk.Label(self._tooltip, text=self.text, padding=(8, 4), relief="solid")
+        label.pack()
+
+    def _hide(self, event=None):
+        self._cancel()
+        if self._tooltip:
+            self._tooltip.destroy()
+            self._tooltip = None
+
 class BatchUpdaterApp:
     """主应用：负责 GUI、任务调度与跨线程通信。
 
@@ -56,6 +95,7 @@ class BatchUpdaterApp:
         self.i18n = get_i18n()
         self._detect_system_language()
         self.i18n.register_callback(self._on_language_changed)
+        self._setup_styles()
         self.root.title(self.i18n.t('app_title'))
         self.root.geometry("1000x800")
 
@@ -148,6 +188,25 @@ class BatchUpdaterApp:
         self.update_start_button_state()
         self.load_config() # Load config on startup
 
+    def _setup_styles(self):
+        """初始化更友好的 GUI 主题与通用样式。"""
+        style = ttk.Style(self.root)
+        if "clam" in style.theme_names():
+            style.theme_use("clam")
+
+        default_font = tkfont.nametofont("TkDefaultFont")
+        default_font.configure(size=11)
+        self.root.option_add("*Font", default_font)
+
+        style.configure("TButton", padding=(10, 6))
+        style.configure("TEntry", padding=(4, 3))
+        style.configure("TCombobox", padding=(4, 3))
+        style.configure("TLabelframe", padding=(12, 8))
+        style.configure(
+            "TLabelframe.Label",
+            font=(default_font.cget("family"), default_font.cget("size") + 1, "bold"),
+        )
+
     def _create_widgets(self):
         """构建主界面控件树（配置区/动作区/状态区/日志区）。
 
@@ -171,6 +230,7 @@ class BatchUpdaterApp:
         # --- 1. Config Zone ---
         config_zone_frame = ttk.LabelFrame(top_frame, text=self.i18n.t('config.title'))
         config_zone_frame.grid(row=0, column=0, rowspan=2, padx=10, pady=10, sticky="ns")
+        config_zone_frame.columnconfigure(1, weight=1)
         
         ttk.Label(config_zone_frame, text=self.i18n.t('config.router_model')).grid(row=0, column=0, sticky="w", padx=5, pady=3)
         self.model_combo = ttk.Combobox(config_zone_frame, textvariable=self.job_definition["model"], state="readonly", width=20)
@@ -183,8 +243,8 @@ class BatchUpdaterApp:
         self.protocol_combo.grid(row=1, column=1, sticky="ew", padx=5, pady=3)
 
         ttk.Label(config_zone_frame, text=self.i18n.t('config.port')).grid(row=2, column=0, sticky="w", padx=5, pady=3)
-        port_entry = ttk.Entry(config_zone_frame, textvariable=self.job_definition["port"], width=22)
-        port_entry.grid(row=2, column=1, sticky="ew", padx=5, pady=3)
+        self.port_entry = ttk.Entry(config_zone_frame, textvariable=self.job_definition["port"], width=22)
+        self.port_entry.grid(row=2, column=1, sticky="ew", padx=5, pady=3)
 
         # CIDR Mode Selection and Discovery CIDR on same row (row 3)
         cidr_frame = ttk.Frame(config_zone_frame)
@@ -221,12 +281,12 @@ class BatchUpdaterApp:
         self.discovery_entry = ttk.Entry(cidr_frame, textvariable=self.job_definition["discovery_cidr"], width=22)
 
         ttk.Label(config_zone_frame, text=self.i18n.t('config.initial_ip')).grid(row=4, column=0, sticky="w", padx=5, pady=3)
-        init_ip_entry = ttk.Entry(config_zone_frame, textvariable=self.job_definition["initial_ip"], width=22)
-        init_ip_entry.grid(row=4, column=1, sticky="ew", padx=5, pady=3)
+        self.init_ip_entry = ttk.Entry(config_zone_frame, textvariable=self.job_definition["initial_ip"], width=22)
+        self.init_ip_entry.grid(row=4, column=1, sticky="ew", padx=5, pady=3)
 
         ttk.Label(config_zone_frame, text=self.i18n.t('config.new_ip_start')).grid(row=5, column=0, sticky="w", padx=5, pady=3)
-        new_ip_entry = ttk.Entry(config_zone_frame, textvariable=self.job_definition["new_ip_start"], width=22)
-        new_ip_entry.grid(row=5, column=1, sticky="ew", padx=5, pady=3)
+        self.new_ip_entry = ttk.Entry(config_zone_frame, textvariable=self.job_definition["new_ip_start"], width=22)
+        self.new_ip_entry.grid(row=5, column=1, sticky="ew", padx=5, pady=3)
 
         ttk.Label(config_zone_frame, text=self.i18n.t('config.username')).grid(row=6, column=0, sticky="w", padx=5, pady=3)
         self.user_entry = ttk.Entry(config_zone_frame, textvariable=self.job_definition["username"], width=22)
@@ -277,35 +337,35 @@ class BatchUpdaterApp:
 
         # New Shared IP
         ttk.Label(left_frame, text=self.i18n.t('verification.new_shared_ip')).grid(row=1, column=0, sticky="w", padx=5, pady=3)
-        verify_ip_entry = ttk.Entry(left_frame, textvariable=self.job_definition["verify_ip"], width=22)
-        verify_ip_entry.grid(row=1, column=1, sticky="ew", padx=5, pady=3)
-        self.left_verify_widgets.append(verify_ip_entry)
+        self.verify_ip_entry = ttk.Entry(left_frame, textvariable=self.job_definition["verify_ip"], width=22)
+        self.verify_ip_entry.grid(row=1, column=1, sticky="ew", padx=5, pady=3)
+        self.left_verify_widgets.append(self.verify_ip_entry)
 
         # New Protocol
         ttk.Label(left_frame, text=self.i18n.t('verification.new_protocol')).grid(row=2, column=0, sticky="w", padx=5, pady=3)
-        verify_proto_combo = ttk.Combobox(left_frame, textvariable=self.job_definition["verify_protocol"],
-                                          values=["http", "https"], width=20)
-        verify_proto_combo.grid(row=2, column=1, sticky="ew", padx=5, pady=3)
-        self.left_verify_widgets.append(verify_proto_combo)
+        self.verify_proto_combo = ttk.Combobox(left_frame, textvariable=self.job_definition["verify_protocol"],
+                                               values=["http", "https"], width=20)
+        self.verify_proto_combo.grid(row=2, column=1, sticky="ew", padx=5, pady=3)
+        self.left_verify_widgets.append(self.verify_proto_combo)
 
         # New Port
         ttk.Label(left_frame, text=self.i18n.t('verification.new_port')).grid(row=3, column=0, sticky="w", padx=5, pady=3)
-        verify_port_entry = ttk.Entry(left_frame, textvariable=self.job_definition["verify_port"], width=22)
-        verify_port_entry.grid(row=3, column=1, sticky="ew", padx=5, pady=3)
-        self.left_verify_widgets.append(verify_port_entry)
+        self.verify_port_entry = ttk.Entry(left_frame, textvariable=self.job_definition["verify_port"], width=22)
+        self.verify_port_entry.grid(row=3, column=1, sticky="ew", padx=5, pady=3)
+        self.left_verify_widgets.append(self.verify_port_entry)
 
         # New Username
         ttk.Label(left_frame, text=self.i18n.t('verification.new_username')).grid(row=4, column=0, sticky="w", padx=5, pady=3)
-        verify_user_entry = ttk.Entry(left_frame, textvariable=self.job_definition["verify_username"], width=22)
-        verify_user_entry.grid(row=4, column=1, sticky="ew", padx=5, pady=3)
-        self.left_verify_widgets.append(verify_user_entry)
+        self.verify_user_entry = ttk.Entry(left_frame, textvariable=self.job_definition["verify_username"], width=22)
+        self.verify_user_entry.grid(row=4, column=1, sticky="ew", padx=5, pady=3)
+        self.left_verify_widgets.append(self.verify_user_entry)
 
         # New Password
         ttk.Label(left_frame, text=self.i18n.t('verification.new_password')).grid(row=5, column=0, sticky="w", padx=5, pady=3)
-        verify_pass_entry = ttk.Entry(left_frame, textvariable=self.job_definition["verify_password"], show="*",
-                                      width=22)
-        verify_pass_entry.grid(row=5, column=1, sticky="ew", padx=5, pady=3)
-        self.left_verify_widgets.append(verify_pass_entry)
+        self.verify_pass_entry = ttk.Entry(left_frame, textvariable=self.job_definition["verify_password"], show="*",
+                                           width=22)
+        self.verify_pass_entry.grid(row=5, column=1, sticky="ew", padx=5, pady=3)
+        self.left_verify_widgets.append(self.verify_pass_entry)
 
         # OEM Action
         ttk.Label(left_frame, text=self.i18n.t('verification.oem_action')).grid(row=6, column=0, sticky="w", padx=5, pady=3)
@@ -474,9 +534,32 @@ class BatchUpdaterApp:
         self.log_area.tag_config('ERROR', foreground='red')
         self.log_area.tag_config('HEADER', foreground='purple', font=('TkDefaultFont', 10, 'bold'))
 
+        self._add_tooltips()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         self._toggle_credential_fields()
+
+    def _add_tooltips(self):
+        """为关键控件添加简洁提示，降低配置门槛。"""
+        tooltips = {
+            self.model_combo: "选择路由器型号，系统会自动填充部分默认值。",
+            self.protocol_combo: "管理协议通常为 http/https。",
+            self.port_entry: "管理端口，默认 80/443。",
+            self.discovery_entry: "CIDR 探测网段，例如 192.168.2.0/24。",
+            self.init_ip_entry: "设备初始共享 IP，例如 192.168.2.1。",
+            self.new_ip_entry: "批量改址起始 IP。",
+            self.user_entry: "设备登录账号。",
+            self.pass_entry: "设备登录密码。",
+            self.cred_file_entry: "从文件批量导入账号密码（Excel/CSV）。",
+            self.verify_ip_entry: "验证阶段的共享 IP。",
+            self.verify_proto_combo: "验证阶段使用的协议。",
+            self.verify_port_entry: "验证阶段端口。",
+            self.verify_user_entry: "验证阶段账号。",
+            self.verify_pass_entry: "验证阶段密码。",
+            self.element_search_entry: "验证阶段需查找的页面元素或关键字。",
+        }
+        for widget, text in tooltips.items():
+            ToolTip(widget, text)
 
     def _on_model_selected(self, event=None):
         """
