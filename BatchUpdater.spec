@@ -28,6 +28,10 @@ datas_list = []
 datas_list.append(("config", "config"))
 print("Bundling 'config' folder (CIDR-BOX scripts etc.)")
 
+# Include model-specific automation scripts
+datas_list.append(("scripts", "scripts"))
+print("Bundling 'scripts' folder for model specific steps")
+
 # Include translation file for GUI texts
 datas_list.append(("translations.json", "."))
 print("Bundling translations.json for i18n support")

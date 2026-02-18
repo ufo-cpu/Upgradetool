@@ -74,6 +74,7 @@ class BatchUpdaterApp:
             "port": tk.StringVar(value="80"),
             "do_upgrade": tk.BooleanVar(),
             "firmware_path": tk.StringVar(),
+            "do_ig502_step": tk.BooleanVar(value=True),
             "do_import_config": tk.BooleanVar(),
             "do_upgrade_boot": tk.BooleanVar(value=True),  # 新增：是否升级Bootloader
             "do_shipmode": tk.BooleanVar(value=False),
@@ -113,6 +114,9 @@ class BatchUpdaterApp:
             # 用户配置项：记录底层设备 MAC 与 IP 是否一致，仅作为配置存储，不参与业务逻辑判断
             "lowest_mac_ip_same": tk.BooleanVar(value=False),
         }
+
+        self.ig502_expected_ip = "192.168.1.1"
+        self.ig502_script_relpath = os.path.join("scripts", "ig502", "ig502_step.py")
         
         # --- Status Variables ---
         self.status_vars = {
@@ -353,24 +357,44 @@ class BatchUpdaterApp:
         self.shipmode_check.grid(row=1, column=2, sticky="w", padx=5, pady=2)
         # ===========================
 
+        self.ig502_step_check = ttk.Checkbutton(
+            tasks_frame,
+            text='IG502 Step (Optional / Model-Specific)',
+            variable=self.job_definition["do_ig502_step"],
+            command=self.update_start_button_state,
+        )
+        self.ig502_step_check.grid(row=2, column=0, sticky="w", padx=5, pady=2)
+
+        self.ig502_model_status_var = tk.StringVar(value='Model: Not IG502 (auto-skip)')
+        self.ig502_model_status_label = ttk.Label(tasks_frame, textvariable=self.ig502_model_status_var)
+        self.ig502_model_status_label.grid(row=2, column=1, sticky="w", padx=5, pady=2)
+
+        self.ig502_run_button = ttk.Button(
+            tasks_frame,
+            text='Run IG502 Script',
+            state="disabled",
+            command=self._run_ig502_step_manual,
+        )
+        self.ig502_run_button.grid(row=2, column=2, padx=5, pady=2)
+
         self.config_check = ttk.Checkbutton(tasks_frame, text=self.i18n.t('tasks.import_config'), variable=self.job_definition["do_import_config"], command=self._toggle_file_input)
-        self.config_check.grid(row=2, column=0, sticky="w", padx=5)
+        self.config_check.grid(row=3, column=0, sticky="w", padx=5)
         self.config_entry = ttk.Entry(tasks_frame, textvariable=self.job_definition["config_path"], width=40, state="disabled")
-        self.config_entry.grid(row=2, column=1, sticky="ew", padx=5, pady=2)
+        self.config_entry.grid(row=3, column=1, sticky="ew", padx=5, pady=2)
         self.config_button = ttk.Button(tasks_frame, text=self.i18n.t('config.browse'), command=lambda: self._browse_file("config_path"), state="disabled")
-        self.config_button.grid(row=2, column=2, padx=5, pady=2)
+        self.config_button.grid(row=3, column=2, padx=5, pady=2)
 
         self.restore_check = ttk.Checkbutton(tasks_frame, text=self.i18n.t('tasks.restore_defaults'), variable=self.job_definition["do_restore_defaults"], command=self._toggle_file_input)
-        self.restore_check.grid(row=3, column=0, sticky="w", padx=5)
+        self.restore_check.grid(row=4, column=0, sticky="w", padx=5)
 
         # 新增：恢复默认IP 标签
         self.ip_label = ttk.Checkbutton(tasks_frame, text=self.i18n.t('tasks.restore_default_ip'), variable=self.job_definition["restore_default_ip"], command=self._toggle_file_input)
-        self.ip_label.grid(row=3, column=1, sticky="w", padx=(5, 5), pady=2)
+        self.ip_label.grid(row=4, column=1, sticky="w", padx=(5, 5), pady=2)
 
 
         # 新增：恢复默认IP 下拉框（Combobox）
         self.restore_ip_combobox = ttk.Combobox(tasks_frame, textvariable=self.job_definition["is_default_ip"], values=["YES", "NO"],  state="disabled", width=10)
-        self.restore_ip_combobox.grid(row=3, column=2, sticky="w", padx=5, pady=2)
+        self.restore_ip_combobox.grid(row=4, column=2, sticky="w", padx=5, pady=2)
         self.restore_ip_combobox.current(0)  # 0=YES，1=NO
         self.restore_ip_combobox.bind("<<ComboboxSelected>>", self._toggle_file_input)
 
@@ -381,15 +405,15 @@ class BatchUpdaterApp:
         # self.modify_entry.grid(row=5, column=1, sticky="ew", padx=5, pady=2)
 
         self.incremental_config_check = ttk.Checkbutton(tasks_frame, text=self.i18n.t('tasks.import_incremental_config'), variable=self.job_definition["do_import_incremental_config"],command=self._toggle_file_input)
-        self.incremental_config_check.grid(row=6, column=0, sticky="w", padx=5)
+        self.incremental_config_check.grid(row=7, column=0, sticky="w", padx=5)
         self.incremental_config_entry = ttk.Entry(tasks_frame, textvariable=self.job_definition["incremental_config_path"], width=40, state="disabled")
-        self.incremental_config_entry.grid(row=6, column=1, sticky="ew", padx=5, pady=2)
+        self.incremental_config_entry.grid(row=7, column=1, sticky="ew", padx=5, pady=2)
         self.incremental_config_button = ttk.Button(tasks_frame, text=self.i18n.t('config.browse'), command=lambda: self._browse_file("incremental_config_path"), state="disabled")
-        self.incremental_config_button.grid(row=6, column=2, padx=5, pady=2)
+        self.incremental_config_button.grid(row=7, column=2, padx=5, pady=2)
 
 
         # Placeholder button column to keep grid alignment
-        ttk.Label(tasks_frame, text="").grid(row=3, column=2)
+        ttk.Label(tasks_frame, text="").grid(row=5, column=2)
 
         tasks_frame.columnconfigure(1, weight=1)
 
@@ -477,6 +501,148 @@ class BatchUpdaterApp:
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         self._toggle_credential_fields()
+        self._refresh_ig502_step_ui()
+
+    def _is_ig502_model(self, model_name):
+        """判断当前选中的型号是否属于 IG502。"""
+        return "IG502" in str(model_name or "").upper()
+
+    def _refresh_ig502_step_ui(self):
+        """根据型号更新 IG502 步骤的可见性/可用性提示。"""
+        is_ig502 = self._is_ig502_model(self.job_definition["model"].get())
+
+        if is_ig502:
+            status_now = self.ig502_model_status_var.get()
+            known_runtime_states = {
+                'IG502 step running...',
+                'IG502 step success ✅',
+                'IG502 step failed ❌',
+            }
+            if status_now not in known_runtime_states:
+                self.ig502_model_status_var.set('Model: IG502')
+            self.ig502_step_check.config(state="normal")
+            self.ig502_run_button.config(state="normal")
+            if not self.job_definition["do_ig502_step"].get():
+                self.job_definition["do_ig502_step"].set(True)
+        else:
+            self.ig502_model_status_var.set('Model: Not IG502 (auto-skip)')
+            self.ig502_step_check.config(state="disabled")
+            self.ig502_run_button.config(state="disabled")
+            self.job_definition["do_ig502_step"].set(False)
+
+    def _queue_log_text(self, msg, level='INFO'):
+        """写入一条原始文本日志（无需 i18n key）。"""
+        timestamp = time.strftime("%H:%M:%S")
+        self.gui_queue.put({'type': 'log', 'level': level, 'msg': f"[{timestamp}] {msg}"})
+
+    def _resolve_ig502_script_path(self):
+        """获取 IG502 脚本绝对路径。"""
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), self.ig502_script_relpath)
+
+    def _pick_ig502_edge_config_path(self, job_def):
+        """IG502 edge 配置文件来源：优先增量配置，其次普通配置。"""
+        return job_def.get("incremental_config_path") or job_def.get("config_path") or ""
+
+    def _run_ig502_step_manual(self):
+        """手动执行 IG502 专用步骤（按钮触发）。"""
+        if not self._is_ig502_model(self.job_definition["model"].get()):
+            self._queue_log_text('Current model is not IG502, manual step skipped.', 'INFO')
+            return
+
+        self.ig502_run_button.config(state="disabled")
+        self.ig502_model_status_var.set('IG502 step running...')
+
+        def _worker():
+            try:
+                job_def = {
+                    "protocol": self.job_definition["protocol"].get(),
+                    "port": self.job_definition["port"].get(),
+                    "initial_ip": self.job_definition["initial_ip"].get(),
+                    "username": self.job_definition["username"].get(),
+                    "password": self.job_definition["password"].get(),
+                    "firmware_path": self.job_definition["firmware_path"].get(),
+                    "config_path": self.job_definition["config_path"].get(),
+                    "incremental_config_path": self.job_definition["incremental_config_path"].get(),
+                }
+                success, new_ip = self._run_ig502_pre_config(job_def, job_def["initial_ip"], job_def["username"], job_def["password"])
+                if success:
+                    self.root.after(0, lambda: self.job_definition["initial_ip"].set(new_ip))
+                    self.root.after(0, lambda: self.ig502_model_status_var.set('IG502 step success ✅'))
+                else:
+                    self.root.after(0, lambda: self.ig502_model_status_var.set('IG502 step failed ❌'))
+            finally:
+                self.root.after(0, self._refresh_ig502_step_ui)
+
+        threading.Thread(target=_worker, name="IG502-Manual", daemon=True).start()
+
+    def _run_ig502_pre_config(self, job_def, ip, user, pwd):
+        """执行 IG502 脚本并判断 IP 是否切换到 192.168.1.1。"""
+        script_path = self._resolve_ig502_script_path()
+        if not os.path.exists(script_path):
+            self._queue_log_text(f'IG502 script not found: {script_path}', 'ERROR')
+            return False, ip
+
+        firmware_path = job_def.get("firmware_path") or ""
+        edge_config_path = self._pick_ig502_edge_config_path(job_def)
+        import_config_path = job_def.get("config_path") or ""
+
+        cmd = [
+            sys.executable,
+            script_path,
+            "--ip", ip,
+            "--username", user,
+            "--password", pwd,
+            "--protocol", job_def.get("protocol", "http"),
+            "--firmware", firmware_path,
+            "--edge-config", edge_config_path,
+            "--import-config", import_config_path,
+            "--expected-ip", self.ig502_expected_ip,
+        ]
+
+        self._queue_log_text(f'Start IG502 pre-config script for device: {ip}', 'INFO')
+
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+
+            if process.stdout:
+                for line in process.stdout:
+                    log_line = line.strip()
+                    if log_line:
+                        self._queue_log_text(f"[IG502] {log_line}", 'INFO')
+
+            return_code = process.wait(timeout=900)
+        except subprocess.TimeoutExpired:
+            self._queue_log_text('IG502 script timed out.', 'ERROR')
+            process.kill()
+            return False, ip
+        except Exception as exc:
+            self._queue_log_text(f'IG502 script execution exception: {str(exc)}', 'ERROR')
+            return False, ip
+
+        if return_code != 0:
+            self._queue_log_text(f'IG502 script failed with return code: {return_code}', 'ERROR')
+            return False, ip
+
+        new_ip = self.ig502_expected_ip
+        ping_ok = self._check_ping(new_ip, count=1, timeout=2, max_retries=10, retry_delay=2)
+        try:
+            port_val = int(job_def.get("port", 80))
+        except (TypeError, ValueError):
+            port_val = 80
+        port_ok = self._check_tcp_port(new_ip, port_val, timeout=30)
+
+        if ping_ok and port_ok:
+            self._queue_log_text(f'IG502 step succeeded, device switched to {new_ip}', 'SUCCESS')
+            return True, new_ip
+
+        self._queue_log_text(f'IG502 step failed, target IP {new_ip} unreachable.', 'ERROR')
+        return False, ip
 
     def _on_model_selected(self, event=None):
         """
@@ -509,6 +675,8 @@ class BatchUpdaterApp:
             if "credential_mode" in defaults:
                 self._toggle_credential_fields()
         
+        self._refresh_ig502_step_ui()
+
         # 最后更新 Start 按钮的可用状态
         self.update_start_button_state()
     # def _clear_all(self):
@@ -639,6 +807,7 @@ class BatchUpdaterApp:
         # Handle modify config text box - TEMPORARILY HIDDEN
         # self.modify_entry.config(state="normal" if self.job_definition["do_modify_config"].get() else "disabled")
 
+        self._refresh_ig502_step_ui()
         self.update_start_button_state()
 
     def _toggle_verify_mutex(self):
@@ -2433,6 +2602,26 @@ class BatchUpdaterApp:
                                 self.gui_queue.put({'type': 'update_device', 'mac': mac, 'column': 'upgrade',
                                                     'value': self.i18n.t("table_values.failed")})
                                 final_status = 'FAILED'
+
+                    # --- IG502 Model-Specific Step (between Upgrade and Import Config) ---
+                    if final_status == 'SUCCESS' and self._is_ig502_model(job_def.get("model", "")) and job_def.get("do_ig502_step", False):
+                        self.gui_queue.put({'type': 'update_device', 'mac': mac, 'column': 'status',
+                                            'value': 'IG502 Running'})
+                        ig502_success, switched_ip = self._run_ig502_pre_config(job_def, ip, user, pwd)
+                        if ig502_success:
+                            ip = switched_ip
+                            self.gui_queue.put({'type': 'update_device', 'mac': mac, 'column': 'ip', 'value': ip})
+                            self.gui_queue.put({'type': 'update_device', 'mac': mac, 'column': 'status',
+                                                'value': 'IG502 Success'})
+                        else:
+                            self.gui_queue.put({'type': 'update_device', 'mac': mac, 'column': 'status',
+                                                'value': 'IG502 Failed'})
+                            self.gui_queue.put({
+                                'type': 'show_error_message',
+                                'title': 'IG502 Step Failed',
+                                'message': 'IG502 pre-config failed. Please retry before importing config.',
+                            })
+                            final_status = 'FAILED'
 
                     # --- Step 2: Configuration Task (Mutually Exclusive) ---
                     # 只有当 final_status 为 SUCCESS 时才执行（注意：跳过升级也算 SUCCESS）
