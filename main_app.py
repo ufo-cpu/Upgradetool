@@ -33,6 +33,7 @@ from contextlib import nullcontext
 from models import model_factory
 from i18n import get_i18n
 from config.device_defaults import get_model_defaults
+from model_steps import get_model_preconfig_step
 
 # --- Set up basic logging for console output ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(threadName)s - %(levelname)s - %(message)s')
@@ -74,6 +75,7 @@ class BatchUpdaterApp:
             "port": tk.StringVar(value="80"),
             "do_upgrade": tk.BooleanVar(),
             "firmware_path": tk.StringVar(),
+            "do_model_pre_step": tk.BooleanVar(value=True),
             "do_import_config": tk.BooleanVar(),
             "do_upgrade_boot": tk.BooleanVar(value=True),  # 新增：是否升级Bootloader
             "do_shipmode": tk.BooleanVar(value=False),
@@ -113,6 +115,7 @@ class BatchUpdaterApp:
             # 用户配置项：记录底层设备 MAC 与 IP 是否一致，仅作为配置存储，不参与业务逻辑判断
             "lowest_mac_ip_same": tk.BooleanVar(value=False),
         }
+
         
         # --- Status Variables ---
         self.status_vars = {
@@ -353,24 +356,44 @@ class BatchUpdaterApp:
         self.shipmode_check.grid(row=1, column=2, sticky="w", padx=5, pady=2)
         # ===========================
 
+        self.model_step_check = ttk.Checkbutton(
+            tasks_frame,
+            text='Model-Specific Step (Optional)',
+            variable=self.job_definition["do_model_pre_step"],
+            command=self.update_start_button_state,
+        )
+        self.model_step_check.grid(row=2, column=0, sticky="w", padx=5, pady=2)
+
+        self.model_step_status_var = tk.StringVar(value='No model-specific step (auto-skip)')
+        self.model_step_status_label = ttk.Label(tasks_frame, textvariable=self.model_step_status_var)
+        self.model_step_status_label.grid(row=2, column=1, sticky="w", padx=5, pady=2)
+
+        self.model_step_run_button = ttk.Button(
+            tasks_frame,
+            text='Run Model Step',
+            state="disabled",
+            command=self._run_model_pre_step_manual,
+        )
+        self.model_step_run_button.grid(row=2, column=2, padx=5, pady=2)
+
         self.config_check = ttk.Checkbutton(tasks_frame, text=self.i18n.t('tasks.import_config'), variable=self.job_definition["do_import_config"], command=self._toggle_file_input)
-        self.config_check.grid(row=2, column=0, sticky="w", padx=5)
+        self.config_check.grid(row=3, column=0, sticky="w", padx=5)
         self.config_entry = ttk.Entry(tasks_frame, textvariable=self.job_definition["config_path"], width=40, state="disabled")
-        self.config_entry.grid(row=2, column=1, sticky="ew", padx=5, pady=2)
+        self.config_entry.grid(row=3, column=1, sticky="ew", padx=5, pady=2)
         self.config_button = ttk.Button(tasks_frame, text=self.i18n.t('config.browse'), command=lambda: self._browse_file("config_path"), state="disabled")
-        self.config_button.grid(row=2, column=2, padx=5, pady=2)
+        self.config_button.grid(row=3, column=2, padx=5, pady=2)
 
         self.restore_check = ttk.Checkbutton(tasks_frame, text=self.i18n.t('tasks.restore_defaults'), variable=self.job_definition["do_restore_defaults"], command=self._toggle_file_input)
-        self.restore_check.grid(row=3, column=0, sticky="w", padx=5)
+        self.restore_check.grid(row=4, column=0, sticky="w", padx=5)
 
         # 新增：恢复默认IP 标签
         self.ip_label = ttk.Checkbutton(tasks_frame, text=self.i18n.t('tasks.restore_default_ip'), variable=self.job_definition["restore_default_ip"], command=self._toggle_file_input)
-        self.ip_label.grid(row=3, column=1, sticky="w", padx=(5, 5), pady=2)
+        self.ip_label.grid(row=4, column=1, sticky="w", padx=(5, 5), pady=2)
 
 
         # 新增：恢复默认IP 下拉框（Combobox）
         self.restore_ip_combobox = ttk.Combobox(tasks_frame, textvariable=self.job_definition["is_default_ip"], values=["YES", "NO"],  state="disabled", width=10)
-        self.restore_ip_combobox.grid(row=3, column=2, sticky="w", padx=5, pady=2)
+        self.restore_ip_combobox.grid(row=4, column=2, sticky="w", padx=5, pady=2)
         self.restore_ip_combobox.current(0)  # 0=YES，1=NO
         self.restore_ip_combobox.bind("<<ComboboxSelected>>", self._toggle_file_input)
 
@@ -381,15 +404,15 @@ class BatchUpdaterApp:
         # self.modify_entry.grid(row=5, column=1, sticky="ew", padx=5, pady=2)
 
         self.incremental_config_check = ttk.Checkbutton(tasks_frame, text=self.i18n.t('tasks.import_incremental_config'), variable=self.job_definition["do_import_incremental_config"],command=self._toggle_file_input)
-        self.incremental_config_check.grid(row=6, column=0, sticky="w", padx=5)
+        self.incremental_config_check.grid(row=7, column=0, sticky="w", padx=5)
         self.incremental_config_entry = ttk.Entry(tasks_frame, textvariable=self.job_definition["incremental_config_path"], width=40, state="disabled")
-        self.incremental_config_entry.grid(row=6, column=1, sticky="ew", padx=5, pady=2)
+        self.incremental_config_entry.grid(row=7, column=1, sticky="ew", padx=5, pady=2)
         self.incremental_config_button = ttk.Button(tasks_frame, text=self.i18n.t('config.browse'), command=lambda: self._browse_file("incremental_config_path"), state="disabled")
-        self.incremental_config_button.grid(row=6, column=2, padx=5, pady=2)
+        self.incremental_config_button.grid(row=7, column=2, padx=5, pady=2)
 
 
         # Placeholder button column to keep grid alignment
-        ttk.Label(tasks_frame, text="").grid(row=3, column=2)
+        ttk.Label(tasks_frame, text="").grid(row=5, column=2)
 
         tasks_frame.columnconfigure(1, weight=1)
 
@@ -477,6 +500,114 @@ class BatchUpdaterApp:
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         self._toggle_credential_fields()
+        self._refresh_model_pre_step_ui()
+
+    def _get_active_model_pre_step(self):
+        """Return active model-specific pre-config step plugin for current model."""
+        return get_model_preconfig_step(self.job_definition["model"].get())
+
+    def _refresh_model_pre_step_ui(self):
+        """Enable/disable model-specific step UI according to selected model capability."""
+        step = self._get_active_model_pre_step()
+        if step:
+            status_now = self.model_step_status_var.get()
+            runtime_states = {
+                f"{step.display_name}: running...",
+                f"{step.display_name}: success ✅",
+                f"{step.display_name}: failed ❌",
+            }
+            if status_now not in runtime_states:
+                self.model_step_status_var.set(f"Model step available: {step.display_name}")
+
+            self.model_step_check.config(state="normal")
+            self.model_step_run_button.config(state="normal")
+            self.model_step_check.config(text=step.display_name)
+            if not self.job_definition["do_model_pre_step"].get():
+                self.job_definition["do_model_pre_step"].set(True)
+        else:
+            self.model_step_status_var.set("No model-specific step for current model (auto-skip)")
+            self.model_step_check.config(state="disabled")
+            self.model_step_run_button.config(state="disabled")
+            self.model_step_check.config(text='Model-Specific Step (Optional)')
+            self.job_definition["do_model_pre_step"].set(False)
+
+    def _queue_log_text(self, msg, level='INFO'):
+        """写入一条原始文本日志（无需 i18n key）。"""
+        timestamp = time.strftime("%H:%M:%S")
+        self.gui_queue.put({'type': 'log', 'level': level, 'msg': f"[{timestamp}] {msg}"})
+
+    def _build_model_step_context(self):
+        """Context object passed to model-step plugins."""
+        return {
+            "project_root": os.path.dirname(os.path.abspath(__file__)),
+            "log": self._queue_log_text,
+            "check_ping": self._check_ping,
+            "check_tcp": self._check_tcp_port,
+        }
+
+    def _run_model_pre_step(self, job_def, ip, user, pwd):
+        """Run model-specific pre-config step via plugin registry."""
+        step = get_model_preconfig_step(job_def.get("model", ""))
+        if not step:
+            return True, ip
+
+        payload = {
+            "model": job_def.get("model", ""),
+            "ip": ip,
+            "initial_ip": job_def.get("initial_ip", ip),
+            "username": user,
+            "password": pwd,
+            "protocol": job_def.get("protocol", "http"),
+            "port": job_def.get("port", 80),
+            "firmware_path": job_def.get("firmware_path", ""),
+            "config_path": job_def.get("config_path", ""),
+            "incremental_config_path": job_def.get("incremental_config_path", ""),
+        }
+
+        success, new_ip, err = step.executor(self._build_model_step_context(), payload)
+        if err:
+            self._queue_log_text(err, 'ERROR')
+        return success, new_ip
+
+    def _run_model_pre_step_manual(self):
+        """Manual trigger for model-specific step (reuses plugin infrastructure)."""
+        step = self._get_active_model_pre_step()
+        if not step:
+            self._queue_log_text("No model-specific step available for current model.", 'INFO')
+            return
+
+        self.model_step_run_button.config(state="disabled")
+        self.model_step_status_var.set(f"{step.display_name}: running...")
+
+        def _worker():
+            try:
+                job_def = {
+                    "model": self.job_definition["model"].get(),
+                    "protocol": self.job_definition["protocol"].get(),
+                    "port": self.job_definition["port"].get(),
+                    "initial_ip": self.job_definition["initial_ip"].get(),
+                    "username": self.job_definition["username"].get(),
+                    "password": self.job_definition["password"].get(),
+                    "firmware_path": self.job_definition["firmware_path"].get(),
+                    "config_path": self.job_definition["config_path"].get(),
+                    "incremental_config_path": self.job_definition["incremental_config_path"].get(),
+                }
+
+                success, new_ip = self._run_model_pre_step(
+                    job_def,
+                    job_def["initial_ip"],
+                    job_def["username"],
+                    job_def["password"],
+                )
+                if success:
+                    self.root.after(0, lambda: self.job_definition["initial_ip"].set(new_ip))
+                    self.root.after(0, lambda: self.model_step_status_var.set(f"{step.display_name}: success ✅"))
+                else:
+                    self.root.after(0, lambda: self.model_step_status_var.set(f"{step.display_name}: failed ❌"))
+            finally:
+                self.root.after(0, self._refresh_model_pre_step_ui)
+
+        threading.Thread(target=_worker, name="ModelStep-Manual", daemon=True).start()
 
     def _on_model_selected(self, event=None):
         """
@@ -509,6 +640,8 @@ class BatchUpdaterApp:
             if "credential_mode" in defaults:
                 self._toggle_credential_fields()
         
+        self._refresh_model_pre_step_ui()
+
         # 最后更新 Start 按钮的可用状态
         self.update_start_button_state()
     # def _clear_all(self):
@@ -639,6 +772,7 @@ class BatchUpdaterApp:
         # Handle modify config text box - TEMPORARILY HIDDEN
         # self.modify_entry.config(state="normal" if self.job_definition["do_modify_config"].get() else "disabled")
 
+        self._refresh_model_pre_step_ui()
         self.update_start_button_state()
 
     def _toggle_verify_mutex(self):
@@ -2433,6 +2567,27 @@ class BatchUpdaterApp:
                                 self.gui_queue.put({'type': 'update_device', 'mac': mac, 'column': 'upgrade',
                                                     'value': self.i18n.t("table_values.failed")})
                                 final_status = 'FAILED'
+
+                    # --- Model-Specific Pre-Config Step (plugin/strategy, between Upgrade and Import Config) ---
+                    active_pre_step = get_model_preconfig_step(job_def.get("model", ""))
+                    if final_status == 'SUCCESS' and active_pre_step and job_def.get("do_model_pre_step", False):
+                        self.gui_queue.put({'type': 'update_device', 'mac': mac, 'column': 'status',
+                                            'value': f"{active_pre_step.display_name} Running"})
+                        pre_step_success, switched_ip = self._run_model_pre_step(job_def, ip, user, pwd)
+                        if pre_step_success:
+                            ip = switched_ip
+                            self.gui_queue.put({'type': 'update_device', 'mac': mac, 'column': 'ip', 'value': ip})
+                            self.gui_queue.put({'type': 'update_device', 'mac': mac, 'column': 'status',
+                                                'value': f"{active_pre_step.display_name} Success"})
+                        else:
+                            self.gui_queue.put({'type': 'update_device', 'mac': mac, 'column': 'status',
+                                                'value': f"{active_pre_step.display_name} Failed"})
+                            self.gui_queue.put({
+                                'type': 'show_error_message',
+                                'title': 'Model-Specific Step Failed',
+                                'message': f"{active_pre_step.display_name} failed. Please retry before importing config.",
+                            })
+                            final_status = 'FAILED'
 
                     # --- Step 2: Configuration Task (Mutually Exclusive) ---
                     # 只有当 final_status 为 SUCCESS 时才执行（注意：跳过升级也算 SUCCESS）
